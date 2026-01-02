@@ -160,6 +160,8 @@ This method is called internally and performs:
 2. **Induced Subgraph Extraction**: Gets the actual edges in the network between embedded nodes
 3. **Averaging**: Can average over multiple iterations (though `get_patches` uses iterations=1)
 
+**For detailed explanation**, see [sampling_algorithms_explanation.md](sampling_algorithms_explanation.md)
+
 ### Sampling Algorithms Used:
 1. **Glauber Dynamics** (`glauber_gen_update`):
    - Randomly selects a node in the motif
@@ -175,6 +177,12 @@ This method is called internally and performs:
    - Samples k distinct nodes from the network
    - Creates an injective embedding
    - Different mixing properties
+
+4. **Pivot Injective** (`pivot_inj`):
+   - Combines pivot chain with IDLA
+   - Guarantees distinct nodes with better mixing
+
+**For comprehensive comparison and detailed algorithms**, see [sampling_algorithms_explanation.md](sampling_algorithms_explanation.md)
 
 ## Example Usage
 

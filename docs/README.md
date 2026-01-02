@@ -14,6 +14,17 @@ This directory contains detailed documentation for the Network Dictionary Learni
   - Performance considerations
   - Relationship to other methods in the framework
 
+- **[sampling_algorithms_explanation.md](sampling_algorithms_explanation.md)** - In-depth explanation of MCMC sampling algorithms and the core sampling method:
+  - Complete walkthrough of `update_hom_get_meso_patch` method (the engine behind patch sampling)
+  - Detailed explanation of all four sampling algorithms:
+    - **Glauber Dynamics**: Theoretically sound local updates
+    - **Pivot Chain**: Fast global updates
+    - **IDLA**: Guaranteed distinct nodes
+    - **Pivot Injective**: Combines pivot and IDLA
+  - Algorithm comparison and recommendations
+  - Mathematical properties and theoretical background
+  - Helper method explanations (tree_sample, RW_update, etc.)
+
 ## Quick Reference
 
 ### Core Classes
