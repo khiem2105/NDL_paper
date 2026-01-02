@@ -27,6 +27,35 @@ DEBUG = False
 
 
 class Network_Reconstructor():
+    """
+    Network Dictionary Learning (NDL) and Network Reconstruction and Denoising (NDR) class.
+    
+    This class implements dictionary learning and reconstruction algorithms for networks.
+    It samples local network structures (patches) using MCMC methods, learns a dictionary 
+    of common subgraph patterns, and uses this dictionary to reconstruct or denoise networks.
+    
+    Key Methods
+    -----------
+    get_patches : Sample network patches using MCMC for dictionary learning
+    train_dict : Learn a dictionary of network motifs from sampled patches
+    reconstruct_network : Reconstruct/denoise a network using the learned dictionary
+    
+    Attributes
+    ----------
+    G : NNetwork
+        The input network to analyze
+    n_components : int
+        Number of dictionary atoms (basis patterns) to learn
+    W : numpy.ndarray
+        Dictionary matrix where each column is a vectorized subgraph pattern
+    sampling_alg : str
+        MCMC algorithm for sampling: 'pivot', 'glauber', 'idla', or 'pivot_inj'
+    
+    See Also
+    --------
+    For detailed explanation of the patch sampling process, see:
+    docs/get_patches_method_explanation.md
+    """
     def __init__(self,
                  G,
                  n_components=100,
@@ -47,6 +76,39 @@ class Network_Reconstructor():
                  if_tensor_ntwk=False,
                  omit_folded_edges=False):
         '''
+        Initialize Network Reconstructor for dictionary learning and reconstruction.
+        
+        Parameters
+        ----------
+        G : NNetwork
+            Input network to analyze
+        n_components : int, optional (default=100)
+            Number of dictionary atoms (basis patterns) to learn
+        MCMC_iterations : int, optional (default=500)
+            Number of MCMC iterations for dictionary learning
+        sample_size : int, optional (default=1000)
+            Number of patches to sample per MCMC iteration
+        batch_size : int, optional (default=10)
+            Number of patches used for training dictionaries per ONMF iteration
+        k1 : int, optional (default=0)
+            Length of left side chain from pivot in path motif
+        k2 : int, optional (default=21)
+            Length of right side chain from pivot in path motif
+        alpha : float, optional
+            L1 regularization parameter for sparse coding
+        sampling_alg : str, optional (default='pivot')
+            Subgraph sampling algorithm: 'glauber', 'pivot', 'idla', or 'pivot_inj'
+        if_wtd_network : bool, optional (default=False)
+            If True, network has weighted edges
+        if_tensor_ntwk : bool, optional (default=False)
+            If True, network has colored/multi-type edges (tensor representation)
+        omit_folded_edges : bool, optional (default=False)
+            If True, track edges that appear due to motif folding
+            
+        Notes
+        -----
+        The motif size is k = k1 + k2 + 1, which determines the patch size k×k.
+        
         batch_size = number of patches used for training dictionaries per ONMF iteration
         sources: array of filenames to make patches out of
         patches_array_filename: numpy array file which contains already read-in images
@@ -304,6 +366,39 @@ class Network_Reconstructor():
                                   sampling_alg='glauber', # 'pivot' or  'idla' or 'pivot_inj'
                                   verbose=0,
                                   omit_folded_edges=False):
+        """
+        Update the motif embedding using MCMC and extract the corresponding network patch.
+        
+        This helper method performs the core MCMC sampling step:
+        1. Updates the embedding of the motif into the network using the specified algorithm
+        2. Extracts the induced subgraph (edges between embedded nodes) as a "patch"
+        3. Optionally averages over multiple MCMC iterations
+        
+        Parameters
+        ----------
+        B : numpy.ndarray
+            Adjacency matrix of the motif (template graph structure).
+        emb : array-like
+            Current embedding of motif nodes to network nodes.
+        iterations : int, optional (default=1)
+            Number of MCMC iterations to perform and average over.
+        sampling_alg : str, optional (default='glauber')
+            MCMC algorithm: 'glauber', 'pivot', 'idla', or 'pivot_inj'.
+        verbose : int, optional (default=0)
+            If > 0, print embedding at each iteration.
+        omit_folded_edges : bool, optional (default=False)
+            If True, track which edges are due to motif folding.
+            
+        Returns
+        -------
+        hom_mx2 : numpy.ndarray
+            Adjacency matrix (or tensor) of the induced subgraph, averaged over iterations.
+            Shape: (k, k) for regular networks or (k, k, color_dim) for tensor networks.
+        emb2 : array-like
+            Updated embedding after MCMC iterations.
+        nofolding_ind_mx : numpy.ndarray (only if omit_folded_edges=True)
+            Binary indicator matrix showing which edges are not due to folding.
+        """
         # computes a mesoscale patch of the input network G using Glauber chain to evolve embedding of B in to G
         # also update the homomorphism once
         # iterations = number of iteration
@@ -407,39 +502,104 @@ class Network_Reconstructor():
                     sample_size=1,
                     omit_folded_edges=False,
                     sampling_alg='pivot'):
+        """
+        Sample network patches (subgraphs) using MCMC methods for dictionary learning and reconstruction.
+        
+        This method iteratively samples local network structures (patches) by embedding a motif 
+        into the network using Markov Chain Monte Carlo algorithms. The sampled patches are 
+        vectorized adjacency matrices that capture mesoscale network structure.
+        
+        Parameters
+        ----------
+        B : numpy.ndarray
+            Adjacency matrix of the motif F to be embedded into the network.
+            Shape: (k, k) where k is the number of nodes in the motif.
+        emb : array-like
+            Current embedding of the motif into the network (F → G).
+            Maps motif nodes to network nodes.
+        skip_folded_hom : bool, optional (default=False)
+            If True, only accept patches where all nodes in the embedding are distinct 
+            (injective homomorphisms). This filters out "folded" embeddings where multiple 
+            motif nodes map to the same network node.
+        sample_size : int, optional (default=1)
+            Number of patches to sample from the network.
+        omit_folded_edges : bool, optional (default=False)
+            If True, track which edges appear due to "folding" and return this information.
+        sampling_alg : str, optional (default='pivot')
+            MCMC algorithm to use for sampling:
+            - 'pivot': Pivot chain sampling (generally fastest)
+            - 'glauber': Glauber dynamics (more thorough mixing)
+            - 'idla': Internal Diffusion Limited Aggregation (guaranteed injective)
+            - 'pivot_inj': Injective pivot sampling
+            
+        Returns
+        -------
+        X : numpy.ndarray or None
+            Matrix of sampled patches with shape (k², sample_size) for regular networks
+            or (k², color_dim, sample_size) for tensor networks. Each column is a 
+            vectorized adjacency matrix. Returns None if no patches were successfully sampled.
+        emb : array-like
+            Updated embedding after sampling.
+        nofolding_indicator : numpy.ndarray (only if omit_folded_edges=True)
+            Binary matrix indicating which edges are not due to folding.
+            
+        Notes
+        -----
+        - The method uses MCMC to efficiently sample from large networks
+        - Patches are stored as flattened k×k adjacency matrices (k² vectors)
+        - Safety limit: maximum 10000 * sample_size iterations to prevent infinite loops
+        - Used by train_dict() for dictionary learning and reconstruct_network() for reconstruction
+        
+        See Also
+        --------
+        update_hom_get_meso_patch : Helper method that performs MCMC updates and extracts patches
+        train_dict : Uses get_patches to sample training data for dictionary learning
+        reconstruct_network : Uses get_patches for iterative network reconstruction
+        """
         # B = adjacency matrix of the motif F to be embedded into the network
         # emb = current embedding F\rightarrow G
-        k = B.shape[0]
-        X = np.zeros((k ** 2, 1))
+        
+        # Step 1: Initialize storage and counters
+        k = B.shape[0]  # Size of the motif (number of nodes)
+        X = np.zeros((k ** 2, 1))  # Initialize patch storage (will be overwritten)
         if self.if_tensor_ntwk:
-            X = np.zeros((k ** 2, self.G.color_dim, 1))
+            X = np.zeros((k ** 2, self.G.color_dim, 1))  # For tensor networks with colored edges
 
-
-        num_hom_sampled = 0
-        X = []
-        count = 0
+        num_hom_sampled = 0  # Counter for successfully sampled homomorphisms
+        X = []  # List to accumulate patches
+        count = 0  # Total iteration counter (includes rejected samples)
+        
+        # Step 2: Main sampling loop - continue until we have enough patches or hit iteration limit
         while (num_hom_sampled < sample_size) and (count < 10000 * sample_size):
+            # Update embedding and extract induced subgraph (the "patch")
             meso_patch = self.update_hom_get_meso_patch(B, emb,
                                                         iterations=1,
                                                         sampling_alg = sampling_alg,
                                                         omit_folded_edges=omit_folded_edges)
-            Y = meso_patch[0]
-            emb = meso_patch[1]
+            Y = meso_patch[0]  # k×k adjacency matrix of the sampled patch
+            emb = meso_patch[1]  # Updated embedding for next iteration
+            
+            # Step 3: Filter patches based on node distinctness (if requested)
             if not (skip_folded_hom and len(set(emb))<k):
+                # Accept this patch: either we allow folded embeddings OR all nodes are distinct
                 # skip adding the sampled patch if the nodes are not distinct
                 if not self.if_tensor_ntwk:
-                    Y = Y.reshape(k ** 2, -1)
+                    Y = Y.reshape(k ** 2, -1)  # Flatten k×k matrix to k² vector
                 else:
-                    Y = Y.reshape(k ** 2, self.G.color_dim, -1)
+                    Y = Y.reshape(k ** 2, self.G.color_dim, -1)  # Preserve color dimension
                 X.append(Y)
                     # now X.shape = (k**2, sample_size) or (k**2, color_dim, sample_size)
                 num_hom_sampled += 1
-            count += 1
+            count += 1  # Increment total iteration count
+            
+        # Step 4: Post-process the list of patches into a matrix
         if len(X) > 0:
-            X = np.asarray(X)[..., 0].T
+            X = np.asarray(X)[..., 0].T  # Convert list to array and transpose
+            # Final shape: (k², sample_size) - each column is one patch
         else:
-            X = None
+            X = None  # No patches were successfully sampled
 
+        # Step 5: Return results (with or without folding indicator)
         if not omit_folded_edges:
             return X, emb
         else:
